@@ -110,20 +110,54 @@ size_t get_flist_index(size_t asize)
         /* Multiply the max_size by 2 */
         max_size <<= 1;
     }
-    /* Cap the index with size of free list */
+    /* Cap the index by size of free list */
     return index < FREE_LIST_SIZE ? index : FREE_LIST_SIZE - 1;
 }
 
 /**********************************************************
- * get_flist_index
- * 
+ * insert_free_block
+ * Insert the free block to the start of the designated linked list 
+ * in free block list
  **********************************************************/
-int insert_free_block(void *bp)
+void insert_free_block(void *bp)
 {
     size_t asize = GET_SIZE_FROM_BLK(bp);
     size_t index = get_flist_index(asize);
+
+    void *first_block = free_list[index];
+
+    if (first_block != NULL) {
+        /* If list is not empty, insert in front of the first block */
+        PUT_PREV_FBLOCK(first_block, bp);
+        PUT_NEXT_FBLOCK(bp, first_block);
+    } else {
+        /* If list is empty, set next block to be NULL to identify the last block */
+        PUT_NEXT_FBLOCK(bp, NULL);
+    }
+    /* Set the previous block to NULL to identify the first block */
+    PUT_PREV_FBLOCK(bp, NULL);
+    free_list[index] = bp;
 }
 
+/**********************************************************
+ * remove_free_block
+ * Remove the free block from the free block list
+ **********************************************************/
+void remove_free_block(void *bp)
+{
+    void *prev = GET_PREV_FBLOCK(bp);
+    void *next = GET_NEXT_FBLOCK(bp);
+
+    if (prev == NULL) {
+        /* bp is the first block */
+        size_t asize = GET_SIZE_FROM_BLK(bp);
+        size_t index = get_flist_index(asize);
+        free_list[index] = next;
+    } else {
+        PUT_NEXT_FBLOCK(prev, next);
+        PUT_PREV_FBLOCK(next, prev);
+    }
+}
 
 /**********************************************************
  * mm_init
