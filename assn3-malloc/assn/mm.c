@@ -19,6 +19,15 @@
 #include "memlib.h"
 
 /*********************************************************
+ * Function Prototypes
+ ********************************************************/
+void *find_block(size_t index, size_t asize);
+size_t get_flist_index(size_t asize);
+void insert_free_block(void *bp);
+void remove_free_block(void *bp);
+void *split_block(void *bp, size_t asize);
+
+/*********************************************************
  * NOTE TO STUDENTS: Before you do anything else, please
  * provide your team information in the following struct.
  ********************************************************/
@@ -69,18 +78,21 @@ team_t team = {
 
 /* The minimum number of words for a memory block is 4: 
  * header(1 word) + payload(2 words) + footer(1 word) = 4 words */
-#define MIN_BLOCK_SIZE (4 * WSIZE);
+#define MIN_BLOCK_SIZE (4 * WSIZE)
 
 /* Since the minimum payload of a free block is 2 words, use the first word
  * to store the pointer to the previous free block in a linked list, and 
  * use the second word to store the pointer to the next free block */
-#define GET_PREV_FBLOCK(bp) (GET((char *)(bp) + WSIZE))
-#define GET_NEXT_FBLOCK(bp) (GET((char *)(bp) + DSIZE))
+/* Given a free block pointer bp, return a pointer to the previous or next free block in a free list bin */
+#define GET_PREV_FBLOCK(bp) ((void *) GET(bp))
+#define GET_NEXT_FBLOCK(bp) ((void *) GET((char *)(bp) + WSIZE))
 
-#define PUT_PREV_FBLOCK(bp, ptr) (PUT((char *)(bp) + WSIZE, ptr))
-#define PUT_NEXT_FBLOCK(bp, ptr) (PUT((char *)(bp) + DSIZE, ptr))
+/* Given a free block pointer bp and a pointer to another free block, 
+ * store as the previous or next free block in a free list bin */
+#define PUT_PREV_FBLOCK(bp, ptr) (PUT(bp, (uintptr_t) ptr))
+#define PUT_NEXT_FBLOCK(bp, ptr) (PUT((char *)(bp) + DSIZE, (uintptr_t) ptr))
 
-#define FREE_LIST_SIZE 20;
+#define FREE_LIST_SIZE 20
 
 void *flist[FREE_LIST_SIZE];
 
@@ -100,10 +112,10 @@ void *flist[FREE_LIST_SIZE];
  **********************************************************/
 size_t get_flist_index(size_t asize)
 {
-    size_t index = 0;
+    size_t index;
     /* max_size is the max block size for each segregated linked list */
     size_t max_size = 8;
-    for (index; index < FREE_LIST_SIZE; index++) {
+    for (index = 0; index < FREE_LIST_SIZE; index++) {
         if (asize < max_size) {
             break;
         }
@@ -111,7 +123,7 @@ size_t get_flist_index(size_t asize)
         max_size <<= 1;
     }
     /* Cap the index by size of free list */
-    return index < FREE_LIST_SIZE ? index : FREE_LIST_SIZE - 1;
+    return index<FREE_LIST_SIZE? index : FREE_LIST_SIZE - 1;
 }
 
 /**********************************************************
@@ -125,7 +137,7 @@ void insert_free_block(void *bp)
     size_t asize = GET_SIZE_FROM_BLK(bp);
     size_t index = get_flist_index(asize);
 
-    void *first_block = free_list[index];
+    void *first_block = flist[index];
 
     if (first_block != NULL) {
         /* If list is not empty, insert in front of the first block */
@@ -137,7 +149,7 @@ void insert_free_block(void *bp)
     }
     /* Set the previous block to NULL to identify the first block */
     PUT_PREV_FBLOCK(bp, NULL);
-    free_list[index] = bp;
+    flist[index] = bp;
 }
 
 /**********************************************************
@@ -154,7 +166,7 @@ void remove_free_block(void *bp)
         /* bp is the first block */
         size_t asize = GET_SIZE_FROM_BLK(bp);
         size_t index = get_flist_index(asize);
-        free_list[index] = next;
+        flist[index] = next;
     } else {
         PUT_NEXT_FBLOCK(prev, next);
         PUT_PREV_FBLOCK(next, prev);
@@ -178,7 +190,8 @@ int mm_init(void)
     heap_listp += DSIZE;
 
     /* Initialize the free block list to be NULL */
-    for (int i = 0; i < FREE_LIST_SIZE, i ++) {
+    int i;
+    for (i = 0; i < FREE_LIST_SIZE; i ++) {
         flist[i] = NULL;
     }
 
@@ -262,10 +275,10 @@ void *extend_heap(size_t words)
 void *find_fit(size_t asize)
 {
     void *block = NULL;
-    size_t index = get_flist_index(asize);
+    size_t index;
 
     /* Loop through all bins with size larger than asize */
-    for (index; index < FREE_LIST_SIZE; index++) {
+    for (index = get_flist_index(asize); index < FREE_LIST_SIZE; index++) {
         /* Try to find a fit free block in a bin */
         block = find_block(index, asize);
         if (block != NULL) {
@@ -287,8 +300,8 @@ void *find_fit(size_t asize)
  **********************************************************/
 void *find_block(size_t index, size_t asize)
 {
-    void *bp = free_list[index];
-
+    void *bp = flist[index];
+    size_t block_size;
     /* Loop through the entire bin to find a fit free block */
     while (bp != NULL) {
         block_size = GET_SIZE_FROM_BLK(bp);
@@ -299,6 +312,7 @@ void *find_block(size_t index, size_t asize)
         }
         bp = GET_NEXT_FBLOCK(bp);
     }
+    return bp;
 }
 
 /**********************************************************
@@ -333,6 +347,8 @@ void *split_block(void *bp, size_t asize)
     /* Replace bp to correct the bin of free list corresponding to the new size */
     remove_free_block(bp);
     insert_free_block(bp);
+
+    return bp;
 }
 
 
