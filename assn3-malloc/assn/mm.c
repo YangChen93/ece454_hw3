@@ -75,10 +75,10 @@ team_t team = {
  * to store the pointer to the previous free block in a linked list, and 
  * use the second word to store the pointer to the next free block */
 #define GET_PREV_FBLOCK(bp) (GET((char *)(bp) + WSIZE))
-#define GET_NEXT_FBLOCK(bp) (GET((char *)(bp) + 2 * WSIZE))
+#define GET_NEXT_FBLOCK(bp) (GET((char *)(bp) + DSIZE))
 
 #define PUT_PREV_FBLOCK(bp, ptr) (PUT((char *)(bp) + WSIZE, ptr))
-#define PUT_NEXT_FBLOCK(bp, ptr) (PUT((char *)(bp) + 2 * WSIZE, ptr))
+#define PUT_NEXT_FBLOCK(bp, ptr) (PUT((char *)(bp) + DSIZE, ptr))
 
 #define FREE_LIST_SIZE 20;
 
@@ -118,6 +118,7 @@ size_t get_flist_index(size_t asize)
  * insert_free_block
  * Insert the free block to the start of the designated linked list 
  * in free block list
+ * TODO: Maybe use binary search tree to replace linked list?
  **********************************************************/
 void insert_free_block(void *bp)
 {
@@ -142,6 +143,7 @@ void insert_free_block(void *bp)
 /**********************************************************
  * remove_free_block
  * Remove the free block from the free block list
+ * TODO: Maybe use binary search tree to replace linked list?
  **********************************************************/
 void remove_free_block(void *bp)
 {
@@ -252,22 +254,87 @@ void *extend_heap(size_t words)
 
 /**********************************************************
  * find_fit
- * Traverse the heap searching for a block to fit asize
+ * Starting from the minimum bin index of free list that fits asize, 
+ * traverse the list of remaining bins searching for a block to fit asize.
  * Return NULL if no free blocks can handle that size
  * Assumed that asize is aligned
  **********************************************************/
-void * find_fit(size_t asize)
+void *find_fit(size_t asize)
 {
-    void *bp;
-    for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp))
-    {
-        if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp))))
-        {
-            return bp;
+    void *block = NULL;
+    size_t index = get_flist_index(asize);
+
+    /* Loop through all bins with size larger than asize */
+    for (index; index < FREE_LIST_SIZE; index++) {
+        /* Try to find a fit free block in a bin */
+        block = find_block(index, asize);
+        if (block != NULL) {
+            break;
         }
     }
-    return NULL;
+
+    return block;
 }
+
+/**********************************************************
+ * find_block
+ * Given the bin index of free list and desired block size, 
+ * traverse the linked list searching for a block to fit asize.
+
+ * After finding a fit block, split the block if the remaining block size
+ * is enough for another allocation, and remove the free block from free list.
+ * TODO: Maybe use binary search tree to replace linked list?
+ **********************************************************/
+void *find_block(size_t index, size_t asize)
+{
+    void *bp = free_list[index];
+
+    /* Loop through the entire bin to find a fit free block */
+    while (bp != NULL) {
+        block_size = GET_SIZE_FROM_BLK(bp);
+        if (block_size > asize) {
+            /* Split the free block to decrease internal fragmentation */
+            bp = split_block(bp, asize);
+            break;
+        }
+        bp = GET_NEXT_FBLOCK(bp);
+    }
+}
+
+/**********************************************************
+ * split_block
+ * Given a free block pointer and desired size, split the block into 2,
+ * and place the 2 new free blocks into the correct bin in the free list
+ **********************************************************/
+void *split_block(void *bp, size_t asize)
+{
+    size_t block_size = GET_SIZE_FROM_BLK(bp);
+    assert(block_size >= asize);
+
+    /* Do not split block if the remaining size is not enough for another allocation */
+    if (block_size < asize + MIN_BLOCK_SIZE) {
+        return bp;
+    }
+
+    /* Change size in header and footer of bp */
+    /* Note that the order cannot be changed here, since all subsequence operations depends on the header */
+    PUT(HDRP(bp), asize);
+    PUT(FTRP(bp), asize);
+
+    /* Change size in header and footer of sub block */
+    void *sub_block = NEXT_BLKP(bp);
+    size_t sub_size = block_size - asize;
+    PUT(HDRP(sub_block), sub_size);
+    PUT(FTRP(sub_block), sub_size);
+
+    /* Insert the sub block into free list */
+    insert_free_block(sub_block);
+
+    /* Replace bp to correct the bin of free list corresponding to the new size */
+    remove_free_block(bp);
+    insert_free_block(bp);
+}
+
 
 /**********************************************************
  * place
@@ -284,7 +351,8 @@ void place(void* bp, size_t asize)
 
 /**********************************************************
  * mm_free
- * Free the block and coalesce with neighbouring blocks
+ * Free the block and coalesce with neighbouring blocks.
+ * Add the freed block to free list
  **********************************************************/
 void mm_free(void *bp)
 {
@@ -298,7 +366,7 @@ void mm_free(void *bp)
     bp = coalesce(bp);
 
     /* Add the freed block to free list */
-
+    insert_free_block(bp);
 }
 
 
@@ -309,6 +377,9 @@ void mm_free(void *bp)
  * The decision of splitting the block, or not is determined
  *   in place(..)
  * If no block satisfies the request, the heap is extended
+ * TODO: When asize > CHUNKSIZE, if the last block is free, 
+         use that free block as well to reduce external fragmentation.
+         eg. extend_heap(asize - last free block size)
  **********************************************************/
 void *mm_malloc(size_t size)
 {
