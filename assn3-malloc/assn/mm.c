@@ -25,7 +25,8 @@ void *find_block(size_t index, size_t asize);
 size_t get_flist_index(size_t asize);
 void insert_free_block(void *bp);
 void remove_free_block(void *bp);
-void *split_block(void *bp, size_t asize);
+void *handle_split_block(void *bp, size_t asize);
+void print_flist(void);
 
 /*********************************************************
  * NOTE TO STUDENTS: Before you do anything else, please
@@ -90,7 +91,7 @@ team_t team = {
 /* Given a free block pointer bp and a pointer to another free block, 
  * store as the previous or next free block in a free list bin */
 #define PUT_PREV_FBLOCK(bp, ptr) (PUT(bp, (uintptr_t) ptr))
-#define PUT_NEXT_FBLOCK(bp, ptr) (PUT((char *)(bp) + DSIZE, (uintptr_t) ptr))
+#define PUT_NEXT_FBLOCK(bp, ptr) (PUT((char *)(bp) + WSIZE, (uintptr_t) ptr))
 
 #define FREE_LIST_SIZE 20
 
@@ -123,7 +124,8 @@ size_t get_flist_index(size_t asize)
         max_size <<= 1;
     }
     /* Cap the index by size of free list */
-    return index<FREE_LIST_SIZE? index : FREE_LIST_SIZE - 1;
+    index = (index < FREE_LIST_SIZE) ? index : FREE_LIST_SIZE - 1;
+    return index;
 }
 
 /**********************************************************
@@ -137,19 +139,26 @@ void insert_free_block(void *bp)
     size_t asize = GET_SIZE_FROM_BLK(bp);
     size_t index = get_flist_index(asize);
 
+    printf("Insert free block size = %zu at index = %zu\n", asize / WSIZE, index);
+    fflush(stdout);
+
     void *first_block = flist[index];
 
     if (first_block != NULL) {
         /* If list is not empty, insert in front of the first block */
         PUT_PREV_FBLOCK(first_block, bp);
         PUT_NEXT_FBLOCK(bp, first_block);
+        assert(GET_NEXT_FBLOCK(bp) != NULL);
     } else {
         /* If list is empty, set next block to be NULL to identify the last block */
         PUT_NEXT_FBLOCK(bp, NULL);
+        assert(GET_NEXT_FBLOCK(bp) == NULL);
     }
     /* Set the previous block to NULL to identify the first block */
     PUT_PREV_FBLOCK(bp, NULL);
     flist[index] = bp;
+
+    assert(GET_PREV_FBLOCK(bp) == NULL);
 }
 
 /**********************************************************
@@ -159,18 +168,110 @@ void insert_free_block(void *bp)
  **********************************************************/
 void remove_free_block(void *bp)
 {
+    size_t asize = GET_SIZE_FROM_BLK(bp);
+    printf("Remove free block size = %zu\n", asize / WSIZE);
+    fflush(stdout);
+
     void *prev = GET_PREV_FBLOCK(bp);
     void *next = GET_NEXT_FBLOCK(bp);
 
-    if (prev == NULL) {
+    if (prev) {
+        /* bp is not the first block */
+        PUT_NEXT_FBLOCK(prev, next);
+    } else {
         /* bp is the first block */
-        size_t asize = GET_SIZE_FROM_BLK(bp);
         size_t index = get_flist_index(asize);
         flist[index] = next;
-    } else {
-        PUT_NEXT_FBLOCK(prev, next);
+    }
+    if (next) {
+        /* bp is not the last block */
         PUT_PREV_FBLOCK(next, prev);
     }
+}
+
+/**********************************************************
+ * find_block
+ * Given the bin index of free list and desired block size, 
+ * traverse the linked list searching for a block to fit asize.
+
+ * After finding a fit block, split the block if the remaining block size
+ * is enough for another allocation, and remove the free block from free list.
+ * TODO: Maybe use binary search tree to replace linked list?
+ **********************************************************/
+void *find_block(size_t index, size_t asize)
+{
+    void *bp = flist[index];
+    size_t block_size;
+    /* Loop through the entire bin to find a fit free block */
+    while (bp != NULL) {
+        block_size = GET_SIZE_FROM_BLK(bp);
+        if (block_size >= asize) {
+            printf("Found fit free block size = %zu at index = %zu\n", block_size, index);
+            bp = handle_split_block(bp, asize);
+            break;
+        }
+        bp = GET_NEXT_FBLOCK(bp);
+    }
+    return bp;
+}
+
+/**********************************************************
+ * split_block
+ * Given a free block pointer and desired size, split the block into 2,
+ * and place the 2 new free blocks into the correct bin in the free list
+ **********************************************************/
+void *handle_split_block(void *bp, size_t asize)
+{
+    size_t block_size = GET_SIZE_FROM_BLK(bp);
+    assert(block_size >= asize);
+    size_t sub_size = block_size - asize;
+
+    /* First, remove block from free list first */
+    remove_free_block(bp);
+
+    /* Do not split if block size is not large enough */
+    if (block_size < asize + MIN_BLOCK_SIZE) {
+        printf("No need to split\n");
+        return bp;
+    }
+
+    printf("Splitting %zu into %zu and %zu\n", block_size / WSIZE, asize / WSIZE, sub_size / WSIZE);
+    fflush(stdout);
+
+    /* Change size in header and footer of bp */
+    /* Note that the order cannot be changed here, since all subsequence operations depends on the header */
+    PUT(HDRP(bp), asize);
+    PUT(FTRP(bp), asize);
+
+    size_t tmp;
+    tmp = GET_SIZE(HDRP(bp));
+    assert(tmp == asize);
+    tmp = GET_SIZE(FTRP(bp));
+    assert(tmp == asize);
+    tmp = GET_ALLOC(HDRP(bp));
+    assert(tmp == 0);
+    tmp = GET_ALLOC(FTRP(bp));
+    assert(tmp == 0);
+
+    /* Change size in header and footer of sub block */
+    void *sub_block = NEXT_BLKP(bp);
+    PUT(HDRP(sub_block), sub_size);
+    PUT(FTRP(sub_block), sub_size);
+
+    tmp = GET_SIZE(HDRP(sub_block));
+    assert(tmp == sub_size);
+    tmp = GET_SIZE(FTRP(sub_block));
+    assert(tmp == sub_size);
+    tmp = GET_ALLOC(HDRP(sub_block));
+    assert(tmp == 0);
+    tmp = GET_ALLOC(FTRP(sub_block));
+    assert(tmp == 0);
+
+    /* Insert the sub block back to the free list */
+    insert_free_block(sub_block);
+
+    print_flist();
+    return bp;
 }
 
 /**********************************************************
@@ -205,11 +306,15 @@ int mm_init(void)
  * - the next block is available for coalescing
  * - the previous block is available for coalescing
  * - both neighbours are available for coalescing
+
+ * Note that after coalescing, the coalesced blocks will be removed from free list
  **********************************************************/
 void *coalesce(void *bp)
 {
-    size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
-    size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
+    void *prev = (void *) PREV_BLKP(bp);
+    void *next = (void *) NEXT_BLKP(bp);
+    size_t prev_alloc = GET_ALLOC(FTRP(prev));
+    size_t next_alloc = GET_ALLOC(HDRP(next));
     size_t size = GET_SIZE(HDRP(bp));
 
     if (prev_alloc && next_alloc) {       /* Case 1 */
@@ -217,22 +322,27 @@ void *coalesce(void *bp)
     }
 
     else if (prev_alloc && !next_alloc) { /* Case 2 */
-        size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
+        /* Need to remove from free list because it is been coalesced */
+        remove_free_block(next);
+        size += GET_SIZE(HDRP(next));
         PUT(HDRP(bp), PACK(size, 0));
         PUT(FTRP(bp), PACK(size, 0));
         return (bp);
     }
 
     else if (!prev_alloc && next_alloc) { /* Case 3 */
-        size += GET_SIZE(HDRP(PREV_BLKP(bp)));
+        /* Need to remove prev from free list because the size is changed */
+        remove_free_block(prev);
+        size += GET_SIZE(HDRP(prev));
         PUT(FTRP(bp), PACK(size, 0));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
         return (PREV_BLKP(bp));
     }
 
     else {            /* Case 4 */
-        size += GET_SIZE(HDRP(PREV_BLKP(bp)))  +
-            GET_SIZE(FTRP(NEXT_BLKP(bp)))  ;
+        remove_free_block(prev);
+        remove_free_block(next);
+        size += GET_SIZE(HDRP(prev)) + GET_SIZE(FTRP(next))  ;
         PUT(HDRP(PREV_BLKP(bp)), PACK(size,0));
         PUT(FTRP(NEXT_BLKP(bp)), PACK(size,0));
         return (PREV_BLKP(bp));
@@ -261,7 +371,9 @@ void *extend_heap(size_t words)
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));        // new epilogue header
 
     /* Coalesce if the previous block was free */
-    return coalesce(bp);
+    bp = coalesce(bp);
+
+    return bp;
 }
 
 
@@ -274,83 +386,21 @@ void *extend_heap(size_t words)
  **********************************************************/
 void *find_fit(size_t asize)
 {
-    void *block = NULL;
+    fflush(stdout);
+    void *bp = NULL;
     size_t index;
 
     /* Loop through all bins with size larger than asize */
     for (index = get_flist_index(asize); index < FREE_LIST_SIZE; index++) {
         /* Try to find a fit free block in a bin */
-        block = find_block(index, asize);
-        if (block != NULL) {
+        bp = find_block(index, asize);
+        if (bp != NULL) {
             break;
         }
     }
 
-    return block;
-}
-
-/**********************************************************
- * find_block
- * Given the bin index of free list and desired block size, 
- * traverse the linked list searching for a block to fit asize.
-
- * After finding a fit block, split the block if the remaining block size
- * is enough for another allocation, and remove the free block from free list.
- * TODO: Maybe use binary search tree to replace linked list?
- **********************************************************/
-void *find_block(size_t index, size_t asize)
-{
-    void *bp = flist[index];
-    size_t block_size;
-    /* Loop through the entire bin to find a fit free block */
-    while (bp != NULL) {
-        block_size = GET_SIZE_FROM_BLK(bp);
-        if (block_size > asize) {
-            /* Split the free block to decrease internal fragmentation */
-            bp = split_block(bp, asize);
-            break;
-        }
-        bp = GET_NEXT_FBLOCK(bp);
-    }
     return bp;
 }
-
-/**********************************************************
- * split_block
- * Given a free block pointer and desired size, split the block into 2,
- * and place the 2 new free blocks into the correct bin in the free list
- **********************************************************/
-void *split_block(void *bp, size_t asize)
-{
-    size_t block_size = GET_SIZE_FROM_BLK(bp);
-    assert(block_size >= asize);
-
-    /* Do not split block if the remaining size is not enough for another allocation */
-    if (block_size < asize + MIN_BLOCK_SIZE) {
-        return bp;
-    }
-
-    /* Change size in header and footer of bp */
-    /* Note that the order cannot be changed here, since all subsequence operations depends on the header */
-    PUT(HDRP(bp), asize);
-    PUT(FTRP(bp), asize);
-
-    /* Change size in header and footer of sub block */
-    void *sub_block = NEXT_BLKP(bp);
-    size_t sub_size = block_size - asize;
-    PUT(HDRP(sub_block), sub_size);
-    PUT(FTRP(sub_block), sub_size);
-
-    /* Insert the sub block into free list */
-    insert_free_block(sub_block);
-
-    /* Replace bp to correct the bin of free list corresponding to the new size */
-    remove_free_block(bp);
-    insert_free_block(bp);
-
-    return bp;
-}
-
 
 /**********************************************************
  * place
@@ -377,12 +427,19 @@ void mm_free(void *bp)
     }
     /* Clear allocated bit in header and footer, and coalesce freed block */
     size_t size = GET_SIZE(HDRP(bp));
+
+    printf("Free size = %zu\n", size / WSIZE);
+    fflush(stdout);
+
     PUT(HDRP(bp), PACK(size,0));
     PUT(FTRP(bp), PACK(size,0));
     bp = coalesce(bp);
 
     /* Add the freed block to free list */
     insert_free_block(bp);
+    print_flist();
+    printf("********************\n");
+    fflush(stdout);
 }
 
 
@@ -413,19 +470,32 @@ void *mm_malloc(size_t size)
     else
         asize = DSIZE * ((size + (DSIZE) + (DSIZE-1))/ DSIZE);
 
+    printf("Malloc size = %zu\n", asize / WSIZE);
+    fflush(stdout);
+
     /* Search the free list for a fit */
     if ((bp = find_fit(asize)) != NULL) {
         place(bp, asize);
+        printf("********************\n");
+        fflush(stdout);
         return bp;
     }
+
+    printf("No free block, extending heap\n");
+    fflush(stdout);
 
     /* No fit found. Get more memory and place the block */
     extendsize = MAX(asize, CHUNKSIZE);
     if ((bp = extend_heap(extendsize/WSIZE)) == NULL)
         return NULL;
     place(bp, asize);
-    return bp;
 
+    size_t tmp_size = GET_SIZE(HDRP(bp));
+    printf("bp size = %zu\n", tmp_size / WSIZE);
+    printf("********************\n");
+    fflush(stdout);
+
+    return bp;
 }
 
 /**********************************************************
@@ -434,6 +504,8 @@ void *mm_malloc(size_t size)
  *********************************************************/
 void *mm_realloc(void *ptr, size_t size)
 {
+    printf("Realloc\n");
+    fflush(stdout);
     /* If size == 0 then this is just free, and we return NULL. */
     if(size == 0){
       mm_free(ptr);
@@ -465,6 +537,26 @@ void *mm_realloc(void *ptr, size_t size)
  * Check the consistency of the memory heap
  * Return nonzero if the heap is consistant.
  *********************************************************/
-int mm_check(void){
+int mm_check(void)
+{
   return 1;
+}
+
+void print_flist(void)
+{
+    int i;
+    size_t size;
+    void *bp;
+    printf("Full Free List:\n");
+    for (i = 0; i < FREE_LIST_SIZE; i++) {
+        printf("%i -> ", i);
+        bp = flist[i];
+        while (bp != NULL) {
+            size = GET_SIZE_FROM_BLK(bp);
+            printf("%zu, ", size / WSIZE);
+            bp = GET_NEXT_FBLOCK(bp);
+        }
+        printf("\n");
+    }
+    fflush(stdout);
 }
