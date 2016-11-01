@@ -24,15 +24,15 @@
  ********************************************************/
 team_t team = {
     /* Team name */
-    "",
+    "First Blood",
     /* First member's full name */
-    "",
+    "Yang Chen",
     /* First member's email address */
-    "",
+    "robbie.chen@mail.utoronto.ca",
     /* Second member's full name (leave blank if none) */
-    "",
+    "Zhongyang Xiao",
     /* Second member's email address (leave blank if none) */
-    ""
+    "sam.xiao@mail.utoronto.ca"
 };
 
 /*************************************************************************
@@ -60,29 +60,94 @@ team_t team = {
 #define HDRP(bp)        ((char *)(bp) - WSIZE)
 #define FTRP(bp)        ((char *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE)
 
-/* Given block ptr bp, compute address of next and previous blocks */
-#define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
-#define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
+/* Given block ptr bp, compute the size of the block */
+#define GET_SIZE_FROM_BLK(bp)   (GET_SIZE(HDRP(bp)))
 
-void* heap_listp = NULL;
+/* Given block ptr bp, compute address of next and previous blocks */
+#define NEXT_BLKP(bp)   ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
+#define PREV_BLKP(bp)   ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
+
+/* The minimum number of words for a memory block is 4: 
+ * header(1 word) + payload(2 words) + footer(1 word) = 4 words */
+#define MIN_BLOCK_SIZE (4 * WSIZE);
+
+/* Since the minimum payload of a free block is 2 words, use the first word
+ * to store the pointer to the previous free block in a linked list, and 
+ * use the second word to store the pointer to the next free block */
+#define GET_PREV_FBLOCK(bp) (GET((char *)(bp) + WSIZE))
+#define GET_NEXT_FBLOCK(bp) (GET((char *)(bp) + 2 * WSIZE))
+
+#define PUT_PREV_FBLOCK(bp, ptr) (PUT((char *)(bp) + WSIZE, ptr))
+#define PUT_NEXT_FBLOCK(bp, ptr) (PUT((char *)(bp) + 2 * WSIZE, ptr))
+
+#define FREE_LIST_SIZE 20;
+
+void *flist[FREE_LIST_SIZE];
+
+/**********************************************************
+ * get_flist_index
+ * Compute the index of the free list for a given size,
+ * each element of the free block is a linked list of free blocks, 
+ * with block sizes ranging from 2**(i+2) to 2**(i+3)-1 of words.
+ * Assuming block sizes includes header and footer size and are aligned.
+ * 
+ * Eg. block of 4 ~ 7 words in the 1st linked list
+       block of 8 ~ 15 words in the 2nd linked list
+       block of 16 ~ 31 words in the 3rd linked list
+ * 
+ * For block sizes greater than 2**(FREE_LIST_SIZE+2), place them in the
+ * last linked list.
+ **********************************************************/
+size_t get_flist_index(size_t asize)
+{
+    size_t index = 0;
+    /* max_size is the max block size for each segregated linked list */
+    size_t max_size = 8;
+    for (index; index < FREE_LIST_SIZE; index++) {
+        if (asize < max_size) {
+            break;
+        }
+        /* Multiply the max_size by 2 */
+        max_size <<= 1;
+    }
+    /* Cap the index with size of free list */
+    return index < FREE_LIST_SIZE ? index : FREE_LIST_SIZE - 1;
+}
+
+/**********************************************************
+ * get_flist_index
+ * 
+ **********************************************************/
+int insert_free_block(void *bp)
+{
+    size_t asize = GET_SIZE_FROM_BLK(bp);
+    size_t index = get_flist_index(asize);
+}
+
 
 /**********************************************************
  * mm_init
  * Initialize the heap, including "allocation" of the
  * prologue and epilogue
  **********************************************************/
- int mm_init(void)
- {
-   if ((heap_listp = mem_sbrk(4*WSIZE)) == (void *)-1)
-         return -1;
-     PUT(heap_listp, 0);                         // alignment padding
-     PUT(heap_listp + (1 * WSIZE), PACK(DSIZE, 1));   // prologue header
-     PUT(heap_listp + (2 * WSIZE), PACK(DSIZE, 1));   // prologue footer
-     PUT(heap_listp + (3 * WSIZE), PACK(0, 1));    // epilogue header
-     heap_listp += DSIZE;
+int mm_init(void)
+{
+    void* heap_listp = NULL;
+    if ((heap_listp = mem_sbrk(4*WSIZE)) == (void *)-1) return -1;
 
-     return 0;
- }
+    PUT(heap_listp, 0);                         // alignment padding
+    PUT(heap_listp + (1 * WSIZE), PACK(DSIZE, 1));   // prologue header
+    PUT(heap_listp + (2 * WSIZE), PACK(DSIZE, 1));   // prologue footer
+    PUT(heap_listp + (3 * WSIZE), PACK(0, 1));    // epilogue header
+    heap_listp += DSIZE;
+
+    /* Initialize the free block list to be NULL */
+    for (int i = 0; i < FREE_LIST_SIZE, i ++) {
+        flist[i] = NULL;
+    }
+
+    return 0;
+}
 
 /**********************************************************
  * coalesce
@@ -192,10 +257,14 @@ void mm_free(void *bp)
     if(bp == NULL){
       return;
     }
+    /* Clear allocated bit in header and footer, and coalesce freed block */
     size_t size = GET_SIZE(HDRP(bp));
     PUT(HDRP(bp), PACK(size,0));
     PUT(FTRP(bp), PACK(size,0));
-    coalesce(bp);
+    bp = coalesce(bp);
+
+    /* Add the freed block to free list */
+
 }
 
 
