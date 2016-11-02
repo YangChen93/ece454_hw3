@@ -27,6 +27,7 @@ void insert_free_block(void *bp);
 void remove_free_block(void *bp);
 void *handle_split_block(void *bp, size_t asize);
 void print_flist(void);
+size_t get_extend_size(size_t asize);
 
 /*********************************************************
  * NOTE TO STUDENTS: Before you do anything else, please
@@ -51,7 +52,7 @@ team_t team = {
 *************************************************************************/
 #define WSIZE       sizeof(void *)            /* word size (bytes) */
 #define DSIZE       (2 * WSIZE)            /* doubleword size (bytes) */
-#define CHUNKSIZE   (1<<7)      /* initial heap size (bytes) */
+#define CHUNKSIZE   (18 * WSIZE)      /* initial heap size (bytes) */
 
 #define MAX(x,y) ((x) > (y)?(x) :(y))
 
@@ -70,12 +71,12 @@ team_t team = {
 #define HDRP(bp)        ((char *)(bp) - WSIZE)
 #define FTRP(bp)        ((char *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE)
 
-/* Given block ptr bp, compute the size of the block */
-#define GET_SIZE_FROM_BLK(bp)   (GET_SIZE(HDRP(bp)))
-
 /* Given block ptr bp, compute address of next and previous blocks */
 #define NEXT_BLKP(bp)   ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
 #define PREV_BLKP(bp)   ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
+
+/* Given block ptr bp, compute the size of the block */
+#define GET_SIZE_FROM_BLK(bp)   (GET_SIZE(HDRP(bp)))
 
 /* The minimum number of words for a memory block is 4: 
  * header(1 word) + payload(2 words) + footer(1 word) = 4 words */
@@ -206,7 +207,7 @@ void *find_block(size_t index, size_t asize)
     while (bp != NULL) {
         block_size = GET_SIZE_FROM_BLK(bp);
         if (block_size >= asize) {
-            printf("Found fit free block size = %zu at index = %zu\n", block_size, index);
+            printf("Found fit free block size = %zu at index = %zu\n", block_size / WSIZE, index);
             bp = handle_split_block(bp, asize);
             break;
         }
@@ -251,7 +252,6 @@ void *handle_split_block(void *bp, size_t asize)
     /* Insert the sub block back to the free list */
     insert_free_block(sub_block);
 
-    print_flist();
     return bp;
 }
 
@@ -288,18 +288,22 @@ int mm_init(void)
  * - the previous block is available for coalescing
  * - both neighbours are available for coalescing
 
- * Note that after coalescing, the coalesced blocks will be removed from free list
+ * Note that after coalescing, the coalesced blocks will be removed from free list,
+ * and the new block will be added to free list
  **********************************************************/
 void *coalesce(void *bp)
 {
+    void *new_block;
     void *prev = (void *) PREV_BLKP(bp);
     void *next = (void *) NEXT_BLKP(bp);
     size_t prev_alloc = GET_ALLOC(FTRP(prev));
     size_t next_alloc = GET_ALLOC(HDRP(next));
     size_t size = GET_SIZE(HDRP(bp));
 
+    printf("Coalescing\n");
+
     if (prev_alloc && next_alloc) {       /* Case 1 */
-        return bp;
+        new_block = bp;
     }
 
     else if (prev_alloc && !next_alloc) { /* Case 2 */
@@ -308,7 +312,7 @@ void *coalesce(void *bp)
         size += GET_SIZE(HDRP(next));
         PUT(HDRP(bp), PACK(size, 0));
         PUT(FTRP(bp), PACK(size, 0));
-        return (bp);
+        new_block = bp;
     }
 
     else if (!prev_alloc && next_alloc) { /* Case 3 */
@@ -317,7 +321,7 @@ void *coalesce(void *bp)
         size += GET_SIZE(HDRP(prev));
         PUT(FTRP(bp), PACK(size, 0));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
-        return (PREV_BLKP(bp));
+        new_block = PREV_BLKP(bp);
     }
 
     else {            /* Case 4 */
@@ -326,8 +330,10 @@ void *coalesce(void *bp)
         size += GET_SIZE(HDRP(prev)) + GET_SIZE(FTRP(next))  ;
         PUT(HDRP(PREV_BLKP(bp)), PACK(size,0));
         PUT(FTRP(NEXT_BLKP(bp)), PACK(size,0));
-        return (PREV_BLKP(bp));
+        new_block = PREV_BLKP(bp);
     }
+    insert_free_block(new_block);
+    return new_block;
 }
 
 /**********************************************************
@@ -345,6 +351,8 @@ void *extend_heap(size_t words)
     size = (words % 2) ? (words+1) * WSIZE : words * WSIZE;
     if ( (bp = mem_sbrk(size)) == (void *)-1 )
         return NULL;
+
+    printf("Extend heap size = %zu\n", size / WSIZE);
 
     /* Initialize free block header/footer and the epilogue header */
     PUT(HDRP(bp), PACK(size, 0));                // free block header
@@ -416,8 +424,6 @@ void mm_free(void *bp)
     PUT(FTRP(bp), PACK(size,0));
     bp = coalesce(bp);
 
-    /* Add the freed block to free list */
-    insert_free_block(bp);
     print_flist();
     printf("********************\n");
     fflush(stdout);
@@ -434,6 +440,7 @@ void mm_free(void *bp)
  * TODO: When asize > CHUNKSIZE, if the last block is free, 
          use that free block as well to reduce external fragmentation.
          eg. extend_heap(asize - last free block size)
+   TODO: Remember to split the extended heap before place
  **********************************************************/
 void *mm_malloc(size_t size)
 {
@@ -453,30 +460,63 @@ void *mm_malloc(size_t size)
 
     printf("Malloc size = %zu\n", asize / WSIZE);
     fflush(stdout);
+    print_flist();
 
     /* Search the free list for a fit */
     if ((bp = find_fit(asize)) != NULL) {
         place(bp, asize);
+
         printf("********************\n");
         fflush(stdout);
+        print_flist();
+
         return bp;
     }
 
+    /* No fit found. Get more memory and place the block */
     printf("No free block, extending heap\n");
     fflush(stdout);
+    
+    extendsize = get_extend_size(asize);
 
-    /* No fit found. Get more memory and place the block */
-    extendsize = MAX(asize, CHUNKSIZE);
     if ((bp = extend_heap(extendsize/WSIZE)) == NULL)
         return NULL;
+    
+    size_t block_size = GET_SIZE(HDRP(bp));
+
+    /* TODO: tune the number? */
+    if (block_size >= asize + 0) {
+        bp = handle_split_block(bp, asize);
+    }
+    
     place(bp, asize);
 
-    size_t tmp_size = GET_SIZE(HDRP(bp));
-    printf("bp size = %zu\n", tmp_size / WSIZE);
+    printf("bp size = %zu\n", block_size / WSIZE);
     printf("********************\n");
     fflush(stdout);
+    print_flist();
 
     return bp;
+}
+
+
+size_t get_extend_size(size_t asize)
+{
+    size_t extendsize;
+
+    if (asize * 2 < CHUNKSIZE) {
+        /* If asize is too small, don't allocate that much memory */
+        extendsize = asize;
+    } else {
+        extendsize = MAX(CHUNKSIZE, asize);
+    }
+
+    /* If last block is free, only extend (extendsize - free_block_size) to reduce external fragmentation*/
+    void *last_bp = PREV_BLKP(mem_heap_hi() + 1);
+    if (!GET_ALLOC(HDRP(last_bp))) {
+        extendsize = asize - GET_SIZE_FROM_BLK(last_bp);
+    }
+    return extendsize;
 }
 
 /**********************************************************
