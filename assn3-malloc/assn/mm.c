@@ -139,8 +139,8 @@ void insert_free_block(void *bp)
     size_t asize = GET_SIZE_FROM_BLK(bp);
     size_t index = get_flist_index(asize);
 
-    //printf("Insert free block size = %zu at index = %zu\n", asize / WSIZE, index);
-    //fflush(stdout);
+    printf("Insert free block size = %zu at index = %zu\n", asize / WSIZE, index);
+    fflush(stdout);
 
     void *first_block = flist[index];
 
@@ -169,8 +169,8 @@ void insert_free_block(void *bp)
 void remove_free_block(void *bp)
 {
     size_t asize = GET_SIZE_FROM_BLK(bp);
-    //printf("Remove free block size = %zu\n", asize / WSIZE);
-    //fflush(stdout);
+    printf("Remove free block size = %zu\n", asize / WSIZE);
+    fflush(stdout);
 
     void *prev = GET_PREV_FBLOCK(bp);
     void *next = GET_NEXT_FBLOCK(bp);
@@ -206,7 +206,7 @@ void *find_block(size_t index, size_t asize)
     while (bp != NULL) {
         block_size = GET_SIZE_FROM_BLK(bp);
         if (block_size >= asize) {
-            //printf("Found fit free block size = %zu at index = %zu\n", block_size, index);
+            printf("Found fit free block size = %zu at index = %zu\n", block_size, index);
             bp = handle_split_block(bp, asize);
             break;
         }
@@ -231,12 +231,12 @@ void *handle_split_block(void *bp, size_t asize)
 
     /* Do not split if block size is not large enough */
     if (block_size < asize + MIN_BLOCK_SIZE) {
-        //printf("No need to split\n");
+        printf("No need to split\n");
         return bp;
     }
 
-    //printf("Splitting %zu into %zu and %zu\n", block_size / WSIZE, asize / WSIZE, sub_size / WSIZE);
-    //fflush(stdout);
+    printf("Splitting %zu into %zu and %zu\n", block_size / WSIZE, asize / WSIZE, sub_size / WSIZE);
+    fflush(stdout);
 
     /* Change size in header and footer of bp */
     /* Note that the order cannot be changed here, since all subsequence operations depends on the header */
@@ -251,7 +251,7 @@ void *handle_split_block(void *bp, size_t asize)
     /* Insert the sub block back to the free list */
     insert_free_block(sub_block);
 
-    //print_flist();
+    print_flist();
     return bp;
 }
 
@@ -367,7 +367,7 @@ void *extend_heap(size_t words)
  **********************************************************/
 void *find_fit(size_t asize)
 {
-    //fflush(stdout);
+    fflush(stdout);
     void *bp = NULL;
     size_t index;
 
@@ -409,8 +409,8 @@ void mm_free(void *bp)
     /* Clear allocated bit in header and footer, and coalesce freed block */
     size_t size = GET_SIZE(HDRP(bp));
 
-    //printf("Free size = %zu\n", size / WSIZE);
-    //fflush(stdout);
+    printf("Free size = %zu\n", size / WSIZE);
+    fflush(stdout);
 
     PUT(HDRP(bp), PACK(size,0));
     PUT(FTRP(bp), PACK(size,0));
@@ -418,9 +418,9 @@ void mm_free(void *bp)
 
     /* Add the freed block to free list */
     insert_free_block(bp);
-    //print_flist();
-    //printf("********************\n");
-    //fflush(stdout);
+    print_flist();
+    printf("********************\n");
+    fflush(stdout);
 }
 
 
@@ -451,19 +451,19 @@ void *mm_malloc(size_t size)
     else
         asize = DSIZE * ((size + (DSIZE) + (DSIZE-1))/ DSIZE);
 
-    //printf("Malloc size = %zu\n", asize / WSIZE);
-    //fflush(stdout);
+    printf("Malloc size = %zu\n", asize / WSIZE);
+    fflush(stdout);
 
     /* Search the free list for a fit */
     if ((bp = find_fit(asize)) != NULL) {
         place(bp, asize);
-        //printf("********************\n");
-        //fflush(stdout);
+        printf("********************\n");
+        fflush(stdout);
         return bp;
     }
 
-    //printf("No free block, extending heap\n");
-    //fflush(stdout);
+    printf("No free block, extending heap\n");
+    fflush(stdout);
 
     /* No fit found. Get more memory and place the block */
     extendsize = MAX(asize, CHUNKSIZE);
@@ -472,9 +472,9 @@ void *mm_malloc(size_t size)
     place(bp, asize);
 
     size_t tmp_size = GET_SIZE(HDRP(bp));
-    //printf("bp size = %zu\n", tmp_size / WSIZE);
-    //printf("********************\n");
-    //fflush(stdout);
+    printf("bp size = %zu\n", tmp_size / WSIZE);
+    printf("********************\n");
+    fflush(stdout);
 
     return bp;
 }
@@ -485,8 +485,8 @@ void *mm_malloc(size_t size)
  *********************************************************/
 void *mm_realloc(void *ptr, size_t size)
 {
-    //printf("Realloc\n");
-    //fflush(stdout);
+    printf("Realloc\n");
+    fflush(stdout);
     /* If size == 0 then this is just free, and we return NULL. */
     if(size == 0){
       mm_free(ptr);
