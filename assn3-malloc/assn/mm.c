@@ -422,7 +422,7 @@ void mm_free(void *bp)
 
     PUT(HDRP(bp), PACK(size,0));
     PUT(FTRP(bp), PACK(size,0));
-    bp = coalesce(bp);
+    coalesce(bp);
 
     //print_flist();
     //printf("********************\n");
