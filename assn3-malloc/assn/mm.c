@@ -97,7 +97,7 @@ team_t team = {
 #define FREE_LIST_SIZE 20
 
 void *flist[FREE_LIST_SIZE];
-bool split_flag = true;
+int split_flag = 1;
 
 /**********************************************************
  * get_flist_index
@@ -569,9 +569,9 @@ void *mm_realloc(void *ptr, size_t size)
     }
     printf("\n");
 
-    split_flag = false;
+    split_flag = 0;
     void *newptr = mm_malloc((size_t)(size * 1.5));
-    split_flag = true;
+    split_flag = 1;
     if (newptr == NULL)
       return NULL;
 
