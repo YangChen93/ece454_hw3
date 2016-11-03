@@ -97,6 +97,8 @@ team_t team = {
 #define FREE_LIST_SIZE 20
 
 void *flist[FREE_LIST_SIZE];
+int split_flag = 1;
+int coalesce_flag = 1;
 
 /**********************************************************
  * get_flist_index
@@ -230,6 +232,11 @@ void *handle_split_block(void *bp, size_t asize)
     /* First, remove block from free list first */
     remove_free_block(bp);
 
+    /* Do not split if split flag set to false */
+    if (!split_flag) {
+        return bp;
+    }
+
     /* Do not split if block size is not large enough */
     if (block_size < asize + MIN_BLOCK_SIZE) {
         printf("No need to split\n");
@@ -299,6 +306,10 @@ void *coalesce(void *bp)
     size_t prev_alloc = GET_ALLOC(FTRP(prev));
     size_t next_alloc = GET_ALLOC(HDRP(next));
     size_t size = GET_SIZE(HDRP(bp));
+
+    if (!coalesce_flag) {
+        return bp;
+    }
 
     printf("Coalescing\n");
 
@@ -422,7 +433,7 @@ void mm_free(void *bp)
 
     PUT(HDRP(bp), PACK(size,0));
     PUT(FTRP(bp), PACK(size,0));
-    bp = coalesce(bp);
+    coalesce(bp);
 
     print_flist();
     printf("********************\n");
@@ -537,19 +548,47 @@ void *mm_realloc(void *ptr, size_t size)
       return (mm_malloc(size));
 
     void *oldptr = ptr;
-    void *newptr;
-    size_t copySize;
 
-    newptr = mm_malloc(size);
+    /* Keep copies of the first 2 words since they will be overwritten after freeing */
+    void *first_word = GET_PREV_FBLOCK(oldptr);
+    void *second_word = GET_NEXT_FBLOCK(oldptr);
+    size_t copySize = GET_SIZE(HDRP(oldptr));
+
+
+    size_t tmp;
+    printf("Oldptr address before free = %p\n", oldptr);
+    int i;
+    for (i = 0 ; i < copySize / WSIZE - 2; i++) {
+        tmp = GET(((char*)oldptr)+i*WSIZE);
+        printf("%zu, ", tmp);
+    }
+    printf("\n");
+
+    mm_free(oldptr);
+
+
+    split_flag = 0;
+    void *newptr = mm_malloc((size_t)(size * 1.5));
+    split_flag = 1;
+
+    printf("Oldptr address after malloc = %p\n", oldptr);
+    for (i = 0 ; i < copySize / WSIZE - 2; i++) {
+        tmp = GET(((char*)oldptr)+i*WSIZE);
+        printf("%zu, ", tmp);
+    }
+    printf("\n");
+
+
     if (newptr == NULL)
       return NULL;
 
     /* Copy the old data. */
-    copySize = GET_SIZE(HDRP(oldptr));
     if (size < copySize)
       copySize = size;
     memcpy(newptr, oldptr, copySize);
-    mm_free(oldptr);
+    PUT_PREV_FBLOCK(newptr, first_word);
+    PUT_NEXT_FBLOCK(newptr, second_word);
+    
     return newptr;
 }
 
