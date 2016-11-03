@@ -548,7 +548,7 @@ void *mm_realloc(void *ptr, size_t size)
     printf("Oldptr address before free = %p\n", oldptr);
     int i;
     for (i = 0 ; i < copySize / WSIZE - 2; i++) {
-        tmp = GET(((char*)oldptr)+i*WSIZE)
+        tmp = GET(((char*)oldptr)+i*WSIZE);
         printf("%zu, ", tmp);
     }
     printf("\n");
@@ -556,7 +556,7 @@ void *mm_realloc(void *ptr, size_t size)
     mm_free(oldptr);
     printf("Oldptr address after free = %p\n", oldptr);
     for (i = 0 ; i < copySize / WSIZE - 2; i++) {
-        tmp = GET(((char*)oldptr)+i*WSIZE)
+        tmp = GET(((char*)oldptr)+i*WSIZE);
         printf("%zu, ", tmp);
     }
     printf("\n");
