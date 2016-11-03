@@ -543,7 +543,23 @@ void *mm_realloc(void *ptr, size_t size)
     void *second_word = GET_NEXT_FBLOCK(oldptr);
     size_t copySize = GET_SIZE(HDRP(oldptr));
 
+
+    size_t tmp;
+    printf("Oldptr address before free = %p\n", oldptr);
+    int i;
+    for (i = 0 ; i < copySize / WSIZE - 2; i++) {
+        tmp = GET(((char*)oldptr)+i*WSIZE)
+        printf("%zu, ", tmp);
+    }
+    printf("\n");
+
     mm_free(oldptr);
+    printf("Oldptr address after free = %p\n", oldptr);
+    for (i = 0 ; i < copySize / WSIZE - 2; i++) {
+        tmp = GET(((char*)oldptr)+i*WSIZE)
+        printf("%zu, ", tmp);
+    }
+    printf("\n");
 
     void *newptr = mm_malloc((size_t)(size * 1.5));
     if (newptr == NULL)
