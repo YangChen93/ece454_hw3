@@ -537,19 +537,25 @@ void *mm_realloc(void *ptr, size_t size)
       return (mm_malloc(size));
 
     void *oldptr = ptr;
-    void *newptr;
-    size_t copySize;
 
-    newptr = mm_malloc(size);
+    /* Keep copies of the first 2 words since they will be overwritten after freeing */
+    void *first_word = GET_PREV_FBLOCK(oldptr);
+    void *second_word = GET_NEXT_FBLOCK(oldptr);
+    size_t copySize = GET_SIZE(HDRP(oldptr));
+
+    mm_free(oldptr);
+
+    void *newptr = mm_malloc((size_t)(size * 1.5));
     if (newptr == NULL)
       return NULL;
 
     /* Copy the old data. */
-    copySize = GET_SIZE(HDRP(oldptr));
     if (size < copySize)
       copySize = size;
     memcpy(newptr, oldptr, copySize);
-    mm_free(oldptr);
+    PUT_PREV_FBLOCK(newptr, first_word);
+    PUT_NEXT_FBLOCK(newptr, second_word);
+    
     return newptr;
 }
 
