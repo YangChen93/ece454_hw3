@@ -98,6 +98,7 @@ team_t team = {
 
 void *flist[FREE_LIST_SIZE];
 int split_flag = 1;
+int coalesce_flag = 1;
 
 /**********************************************************
  * get_flist_index
@@ -305,6 +306,10 @@ void *coalesce(void *bp)
     size_t prev_alloc = GET_ALLOC(FTRP(prev));
     size_t next_alloc = GET_ALLOC(HDRP(next));
     size_t size = GET_SIZE(HDRP(bp));
+
+    if (!coalesce_flag) {
+        return bp;
+    }
 
     printf("Coalescing\n");
 
