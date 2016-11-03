@@ -563,9 +563,9 @@ void *mm_realloc(void *ptr, size_t size)
 
 
 
-    //split_flag = 0;
+    split_flag = 0;
     void *newptr = mm_malloc((size_t)(size * 1.5));
-    //split_flag = 1;
+    split_flag = 1;
 
     printf("Oldptr address after malloc = %p\n", oldptr);
     for (i = 0 ; i < copySize / WSIZE - 2; i++) {
