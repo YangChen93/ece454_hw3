@@ -97,6 +97,7 @@ team_t team = {
 #define FREE_LIST_SIZE 20
 
 void *flist[FREE_LIST_SIZE];
+bool split_flag = true;
 
 /**********************************************************
  * get_flist_index
@@ -229,6 +230,11 @@ void *handle_split_block(void *bp, size_t asize)
 
     /* First, remove block from free list first */
     remove_free_block(bp);
+
+    /* Do not split if split flag set to false */
+    if (!split_flag) {
+        return bp;
+    }
 
     /* Do not split if block size is not large enough */
     if (block_size < asize + MIN_BLOCK_SIZE) {
@@ -554,6 +560,8 @@ void *mm_realloc(void *ptr, size_t size)
     printf("\n");
 
     mm_free(oldptr);
+
+
     printf("Oldptr address after free = %p\n", oldptr);
     for (i = 0 ; i < copySize / WSIZE - 2; i++) {
         tmp = GET(((char*)oldptr)+i*WSIZE);
@@ -561,7 +569,9 @@ void *mm_realloc(void *ptr, size_t size)
     }
     printf("\n");
 
+    split_flag = false;
     void *newptr = mm_malloc((size_t)(size * 1.5));
+    split_flag = true;
     if (newptr == NULL)
       return NULL;
 
